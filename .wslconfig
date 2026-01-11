@@ -1,0 +1,22 @@
+# ============================================================
+# WSL 2 Configuration File
+# ============================================================
+# Copy this file to: C:\Users\<YourUsername>\.wslconfig
+# Then restart Docker Desktop for changes to take effect
+# ============================================================
+
+[wsl2]
+# Memory limit (recommended: 50-75% of total RAM)
+memory=6GB
+
+# Swap space
+swap=2GB
+
+# Number of processors
+processors=4
+
+# Auto reclaim memory when idle
+autoMemoryReclaim=gradual
+
+# Enable sparse VHD to auto-shrink virtual disk
+sparseVhd=true

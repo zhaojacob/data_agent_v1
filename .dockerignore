@@ -1,0 +1,57 @@
+# ============================================================
+# .dockerignore - Docker 构建时排除的文件
+# ============================================================
+# 这些文件不会被复制到容器中，减小镜像体积
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+env/
+.venv/
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# 环境变量文件（敏感信息，通过 Railway 环境变量配置）
+.env
+.env.*
+
+# 测试和文档
+test_*.py
+*.md
+*.sql
+*.pdf
+*.xlsx
+*.csv
+# Note: Do NOT exclude *.txt (requirements.txt is needed)
+
+# Jupyter
+*.ipynb
+.ipynb_checkpoints/
+
+# 本地开发文件
+images/
+agent-chat-ui-main/
+.langgraph_api/
+
+# 日志
+*.log
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db

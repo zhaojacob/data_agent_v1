@@ -1,0 +1,51 @@
+MySQL安装指南
+
+创建MySQL数据库
+apt install mysql-server
+
+然后启动mysql，并设置初始密码：
+mysqld &
+mysql
+
+进入到SQL命令行后，输入如下命令：
+ALTER USER 'root'@'localhost' IDENTIFIED BY '123';
+此处密码可根据实际需求设置。
+然后输入 exit; 即可退出。
+
+然后再次进入MySQL，并根据要求输入密码：
+mysql -u root -p
+
+
+然后创建一个数据库：
+CREATE DATABASE school;
+USE school;
+
+
+
+然后创建一个虚拟表格，里面包含了10位同学各自3门课程的分数：
+CREATE TABLE students_scores (
+id INT AUTO_INCREMENT PRIMARY KEY,
+name VARCHAR(50),
+course1 INT,
+course2 INT,
+course3 INT
+);
+INSERT INTO students_scores (name, course1, course2, course3)
+VALUES
+('学生1', 85, 92, 78),
+('学生2', 76, 88, 91),
+('学生3', 90, 85, 80),
+('学生4', 65, 70, 72),
+('学生5', 82, 89, 95),
+('学生6', 91, 93, 87),
+('学生7', 77, 78, 85),
+('学生8', 88, 92, 91),
+('学生9', 84, 76, 80),
+('学生10', 89, 90, 92);
+
+
+然后即可查看数据集基本情况：
+SELECT * FROM students_scores;
+
+此外，还需要刷新身份验证，使得其他库（如pymysql）可以通过密码验证登录：
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123';

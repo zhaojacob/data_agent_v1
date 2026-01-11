@@ -1,0 +1,67 @@
+# ============================================================
+# Core LangChain/LangGraph Dependencies
+# ============================================================
+langgraph
+langchain-core
+langchain-deepseek
+langchain-openai      # OpenAI-compatible API (works with DeepSeek)
+langchain-community   # Community tools and integrations
+langchain-tavily
+langsmith
+
+# ============================================================
+# Python Utilities
+# ============================================================
+python-dotenv
+pydantic
+IPython
+tenacity          # Retry mechanism with @retry decorator
+
+# ============================================================
+# Data Processing & Visualization
+# ============================================================
+pandas
+matplotlib
+seaborn
+scikit-learn
+numpy
+openpyxl          # Excel read/write (pandas dependency for .xlsx)
+
+# ============================================================
+# Document Processing
+# ============================================================
+python-docx       # Word document read/write
+
+# ============================================================
+# Database
+# ============================================================
+psycopg[binary]   # PostgreSQL driver (v3)
+sqlparse          # SQL parsing and validation
+
+# ============================================================
+# Code Execution Sandbox
+# ============================================================
+e2b-code-interpreter
+
+# ============================================================
+# Web Server (for Railway deployment)
+# ============================================================
+fastapi
+uvicorn[standard]
+sse-starlette
+python-multipart  # File upload support for FastAPI
+httpx             # Async HTTP client (use instead of requests in async code)
+
+# ============================================================
+# Web Scraping & Browser Automation
+# ============================================================
+requests          # Sync HTTP client (for simple scripts)
+beautifulsoup4
+lxml
+crawl4ai          # AI-powered web crawler
+playwright        # Browser automation
+
+# ============================================================
+# Encryption (for some crawlers)
+# ============================================================
+pycryptodome
