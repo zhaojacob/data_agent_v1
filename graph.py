@@ -319,9 +319,15 @@ def python_inter(py_code: str) -> str:
         代码在 E2B 云端沙盒中执行，与主机系统完全隔离，
         无法访问本地文件、网络或执行系统命令。
     """
+    # 检查 E2B API Key 是否配置
+    e2b_api_key = os.getenv('E2B_API_KEY')
+    if not e2b_api_key:
+        return "❌ E2B 沙盒不可用：未配置 E2B_API_KEY 环境变量"
+    
     try:
         # 创建 E2B 沙盒（默认存活 5 分钟）
-        sbx = Sandbox()
+        # 显式传递 API Key 以确保正确配置
+        sbx = Sandbox(api_key=e2b_api_key)
         
         # 在沙盒中执行代码
         execution = sbx.run_code(py_code)
@@ -345,6 +351,7 @@ def python_inter(py_code: str) -> str:
         
         # 错误信息
         if execution.error:
+            sbx.kill()
             return f"❌ 执行失败：{execution.error.name}: {execution.error.value}"
         
         # 关闭沙盒
@@ -356,7 +363,7 @@ def python_inter(py_code: str) -> str:
             return "✅ 代码执行成功（无输出）"
             
     except Exception as e:
-        return f"❌ 沙盒执行失败：{e}"
+        return f"❌ 沙盒执行失败：{type(e).__name__}: {e}"
 
 
 # === 原本地执行代码（已弃用，存在安全风险）===
@@ -429,6 +436,11 @@ def fig_inter(py_code: str, fname: str) -> str:
     import time
     import base64
     
+    # 检查 E2B API Key 是否配置
+    e2b_api_key = os.getenv('E2B_API_KEY')
+    if not e2b_api_key:
+        return "❌ E2B 沙盒不可用：未配置 E2B_API_KEY 环境变量"
+    
     # 图片保存路径配置（从 .env 读取）
     images_dir = os.getenv('IMAGES_DIR')
     if not images_dir:
@@ -462,8 +474,8 @@ print('图片已保存到沙盒')
 """
     
     try:
-        # 创建 E2B 沙盒
-        sbx = Sandbox()
+        # 创建 E2B 沙盒（显式传递 API Key）
+        sbx = Sandbox(api_key=e2b_api_key)
         
         # 执行绘图代码
         execution = sbx.run_code(full_code)
@@ -486,10 +498,10 @@ print('图片已保存到沙盒')
             
         except Exception as e:
             sbx.kill()
-            return f"❌ 图片下载失败：{e}"
+            return f"❌ 图片下载失败：{type(e).__name__}: {e}"
             
     except Exception as e:
-        return f"❌ 沙盒执行失败：{e}"
+        return f"❌ 沙盒执行失败：{type(e).__name__}: {e}"
 
 
 # === 原本地执行代码（已弃用，存在安全风险）===
