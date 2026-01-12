@@ -325,9 +325,8 @@ def python_inter(py_code: str) -> str:
         return "❌ E2B 沙盒不可用：未配置 E2B_API_KEY 环境变量"
     
     try:
-        # 创建 E2B 沙盒（默认存活 5 分钟）
-        # 显式传递 API Key 以确保正确配置
-        sbx = Sandbox(api_key=e2b_api_key)
+        # 创建 E2B 沙盒（使用新版 API）
+        sbx = Sandbox()
         
         # 在沙盒中执行代码
         execution = sbx.run_code(py_code)
@@ -474,8 +473,8 @@ print('图片已保存到沙盒')
 """
     
     try:
-        # 创建 E2B 沙盒（显式传递 API Key）
-        sbx = Sandbox(api_key=e2b_api_key)
+        # 创建 E2B 沙盒（使用新版 API）
+        sbx = Sandbox()
         
         # 执行绘图代码
         execution = sbx.run_code(full_code)
