@@ -500,7 +500,10 @@ print('图片已保存到沙盒')
                 f.write(file_content)
             
             sbx.kill()
-            return f"✅ 图片已保存，路径为: {rel_path}"
+            
+            # 返回 Markdown 格式的图片，方便前端直接显示
+            # 图片可通过 /images/xxx.png 访问
+            return f"✅ 图片已生成！\n\n![{fname}](/images/{image_filename})\n\n图片路径: /images/{image_filename}"
             
         except Exception as e:
             sbx.kill()

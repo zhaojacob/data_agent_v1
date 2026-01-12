@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # 加载环境变量（必须在导入 graph 之前）
@@ -43,6 +44,13 @@ app = FastAPI(
     version="1.0.0",
     description="智能数据分析助手 API",
 )
+
+# ============================================================
+# 静态文件服务（用于访问生成的图片）
+# ============================================================
+images_dir = os.getenv('IMAGES_DIR', '/app/images')
+os.makedirs(images_dir, exist_ok=True)
+app.mount("/images", StaticFiles(directory=images_dir), name="images")
 
 # ============================================================
 # CORS 配置（允许前端跨域访问）
