@@ -334,13 +334,20 @@ def python_inter(py_code: str) -> str:
         # 获取执行结果
         result_parts = []
         
-        # 标准输出
+        # 标准输出（stdout 是列表，需要合并）
         if execution.logs.stdout:
-            result_parts.append(execution.logs.stdout)
+            if isinstance(execution.logs.stdout, list):
+                result_parts.extend(execution.logs.stdout)
+            else:
+                result_parts.append(str(execution.logs.stdout))
         
-        # 标准错误
+        # 标准错误（stderr 也是列表）
         if execution.logs.stderr:
-            result_parts.append(f"[stderr] {execution.logs.stderr}")
+            if isinstance(execution.logs.stderr, list):
+                for err in execution.logs.stderr:
+                    result_parts.append(f"[stderr] {err}")
+            else:
+                result_parts.append(f"[stderr] {execution.logs.stderr}")
         
         # 执行结果（如表达式的返回值）
         if execution.results:
