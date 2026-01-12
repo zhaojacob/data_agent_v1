@@ -89,6 +89,32 @@ async def health_check():
     }
 
 # ============================================================
+# 调试接口：列出 images 目录中的文件
+# ============================================================
+@app.get("/debug/images")
+async def list_images():
+    """列出 images 目录中的所有文件（调试用）"""
+    try:
+        files = []
+        if os.path.exists(images_dir):
+            for f in os.listdir(images_dir):
+                file_path = os.path.join(images_dir, f)
+                if os.path.isfile(file_path):
+                    files.append({
+                        "name": f,
+                        "size": os.path.getsize(file_path),
+                        "url": f"/images/{f}"
+                    })
+        return {
+            "images_dir": images_dir,
+            "exists": os.path.exists(images_dir),
+            "files": files,
+            "count": len(files)
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+# ============================================================
 # 根路径
 # ============================================================
 @app.get("/")

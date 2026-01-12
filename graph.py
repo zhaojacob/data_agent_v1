@@ -493,12 +493,16 @@ print('图片已保存到沙盒')
         
         # 从沙盒下载图片
         try:
-            # 读取沙盒中的图片文件
-            file_content = sbx.files.read(sandbox_path)
+            # 使用 files.read() 读取二进制文件，指定 format='bytes'
+            file_content = sbx.files.read(sandbox_path, format='bytes')
             
-            # 确保是字节类型
-            if isinstance(file_content, str):
-                file_content = file_content.encode()
+            # 打印调试信息
+            print(f"[fig_inter] 文件内容类型: {type(file_content)}")
+            print(f"[fig_inter] 文件内容长度: {len(file_content) if file_content else 0}")
+            
+            if not file_content:
+                sbx.kill()
+                return f"❌ 图片下载失败：沙盒返回空内容，沙盒路径: {sandbox_path}"
             
             # 保存到服务器本地
             with open(local_path, 'wb') as f:
@@ -509,6 +513,7 @@ print('图片已保存到沙盒')
             # 验证文件是否保存成功
             if os.path.exists(local_path):
                 file_size = os.path.getsize(local_path)
+                print(f"[fig_inter] 图片保存成功: {local_path}, 大小: {file_size} 字节")
                 # 返回 Markdown 格式的图片，方便前端直接显示
                 return f"✅ 图片已生成并保存！\n\n![{fname}](/images/{image_filename})\n\n图片路径: /images/{image_filename}\n文件大小: {file_size} 字节"
             else:
@@ -516,6 +521,9 @@ print('图片已保存到沙盒')
             
         except Exception as e:
             sbx.kill()
+            import traceback
+            error_detail = traceback.format_exc()
+            print(f"[fig_inter] 下载失败详情:\n{error_detail}")
             return f"❌ 图片下载失败：{type(e).__name__}: {e}\n沙盒路径: {sandbox_path}\n本地路径: {local_path}"
             
     except Exception as e:
