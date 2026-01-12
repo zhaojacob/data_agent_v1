@@ -291,13 +291,19 @@ if "pending_question" in st.session_state:
         
         st.markdown(assistant_message)
         
-        # 检查是否有图片
-        if "images/" in assistant_message:
+        # 检查是否有图片（支持多种路径格式）
+        if "images/" in assistant_message or "/images/" in assistant_message:
             import re
-            image_matches = re.findall(r'images/[^\s\)]+\.png', assistant_message)
+            # 匹配 /images/xxx.png 或 images/xxx.png
+            image_matches = re.findall(r'/?images/[^\s\)\]]+\.png', assistant_message)
             for img_path in image_matches:
-                full_path = f"{API_URL}/{img_path}"
-                st.image(full_path, caption="Agent 生成的图表")
+                # 确保路径格式正确
+                img_path = img_path.lstrip('/')
+                full_url = f"{API_URL}/{img_path}"
+                try:
+                    st.image(full_url, caption="Agent 生成的图表")
+                except Exception as e:
+                    st.caption(f"📷 图片加载失败: {full_url}")
     
     # 保存助手消息
     st.session_state.messages.append({"role": "assistant", "content": assistant_message})
@@ -344,18 +350,19 @@ if prompt := st.chat_input("输入你的问题..."):
         # 显示回复
         st.markdown(assistant_message)
         
-        # 检查回复中是否包含图片路径
-        if "images/" in assistant_message:
+        # 检查回复中是否包含图片路径（支持多种格式）
+        if "images/" in assistant_message or "/images/" in assistant_message:
             import re
-            # 提取图片路径
-            image_matches = re.findall(r'images/[^\s\)]+\.png', assistant_message)
+            # 匹配 /images/xxx.png 或 images/xxx.png
+            image_matches = re.findall(r'/?images/[^\s\)\]]+\.png', assistant_message)
             for img_path in image_matches:
-                # 尝试从后端获取图片
-                full_path = f"{API_URL}/{img_path}"
+                # 确保路径格式正确
+                img_path = img_path.lstrip('/')
+                full_url = f"{API_URL}/{img_path}"
                 try:
-                    st.image(full_path, caption="Agent 生成的图表")
+                    st.image(full_url, caption="Agent 生成的图表")
                 except Exception:
-                    st.caption(f"📷 图片路径: {img_path}")
+                    st.caption(f"📷 图片加载失败: {full_url}")
     
     # 保存助手消息到历史
     st.session_state.messages.append({"role": "assistant", "content": assistant_message})

@@ -493,21 +493,30 @@ print('图片已保存到沙盒')
         
         # 从沙盒下载图片
         try:
+            # 读取沙盒中的图片文件
             file_content = sbx.files.read(sandbox_path)
             
-            # 保存到本地
+            # 确保是字节类型
+            if isinstance(file_content, str):
+                file_content = file_content.encode()
+            
+            # 保存到服务器本地
             with open(local_path, 'wb') as f:
                 f.write(file_content)
             
             sbx.kill()
             
-            # 返回 Markdown 格式的图片，方便前端直接显示
-            # 图片可通过 /images/xxx.png 访问
-            return f"✅ 图片已生成！\n\n![{fname}](/images/{image_filename})\n\n图片路径: /images/{image_filename}"
+            # 验证文件是否保存成功
+            if os.path.exists(local_path):
+                file_size = os.path.getsize(local_path)
+                # 返回 Markdown 格式的图片，方便前端直接显示
+                return f"✅ 图片已生成并保存！\n\n![{fname}](/images/{image_filename})\n\n图片路径: /images/{image_filename}\n文件大小: {file_size} 字节"
+            else:
+                return f"❌ 图片保存失败：文件未创建，目标路径: {local_path}"
             
         except Exception as e:
             sbx.kill()
-            return f"❌ 图片下载失败：{type(e).__name__}: {e}"
+            return f"❌ 图片下载失败：{type(e).__name__}: {e}\n沙盒路径: {sandbox_path}\n本地路径: {local_path}"
             
     except Exception as e:
         return f"❌ 沙盒执行失败：{type(e).__name__}: {e}"
