@@ -69,14 +69,11 @@ ENV IMAGES_DIR=/app/images
 EXPOSE 8000
 
 # ============================================================
-# Start Command Options:
+# Start Command: FastAPI + Chainlit (挂载模式)
 # ============================================================
-# Option 1: Chainlit only (recommended for frontend)
-CMD ["chainlit", "run", "chainlit_app.py", "--host", "0.0.0.0", "--port", "8000"]
-
-# Option 2: FastAPI only (for API-only deployment)
-# CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
-
-# Option 3: Both via FastAPI mount (advanced)
-# Uncomment the mount code in chainlit_app.py first
-# CMD ["sh", "-c", "uvicorn chainlit_app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# FastAPI 作为底座，Chainlit 挂载到根路径
+# - 聊天界面: /
+# - API 文档: /api/docs
+# - 健康检查: /api/health
+# ============================================================
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
