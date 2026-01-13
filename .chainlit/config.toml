@@ -1,0 +1,45 @@
+[project]
+# 是否启用遥测（发送匿名使用数据）
+enable_telemetry = false
+
+# 会话超时时间（秒）
+session_timeout = 3600
+
+# 是否缓存第三方文件
+cache = false
+
+[features]
+# 是否显示提示词 playground
+prompt_playground = false
+
+# 是否允许用户上传文件
+multi_modal = true
+
+# 是否启用语音输入
+speech_to_text = false
+
+# 是否启用语音输出
+text_to_speech = false
+
+[UI]
+# 应用名称
+name = "Data Agent"
+
+# 是否显示 GitHub 链接
+show_readme_as_default = false
+
+# 默认主题
+default_theme = "light"
+
+# 是否折叠消息
+default_collapse_content = false
+
+# 自定义 CSS（可选）
+# custom_css = "/public/custom.css"
+
+# 自定义 JS（可选）
+# custom_js = "/public/custom.js"
+
+[meta]
+# 页面标题
+generated_by = "Data Agent - 智能数据分析助手"

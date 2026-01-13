@@ -70,3 +70,8 @@ pycryptodome
 # Streamlit Frontend (optional, for local UI)
 # ============================================================
 streamlit
+
+# ============================================================
+# Chainlit Frontend (recommended)
+# ============================================================
+chainlit

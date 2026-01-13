@@ -61,8 +61,22 @@ RUN playwright install chromium
 # ============================================================
 COPY . .
 
+# Create images directory for generated charts
+RUN mkdir -p /app/images
+ENV IMAGES_DIR=/app/images
+
 # Expose port
 EXPOSE 8000
 
-# Start command
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# ============================================================
+# Start Command Options:
+# ============================================================
+# Option 1: Chainlit only (recommended for frontend)
+CMD ["chainlit", "run", "chainlit_app.py", "--host", "0.0.0.0", "--port", "8000"]
+
+# Option 2: FastAPI only (for API-only deployment)
+# CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
+
+# Option 3: Both via FastAPI mount (advanced)
+# Uncomment the mount code in chainlit_app.py first
+# CMD ["sh", "-c", "uvicorn chainlit_app:app --host 0.0.0.0 --port ${PORT:-8000}"]

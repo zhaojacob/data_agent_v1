@@ -514,8 +514,18 @@ print('图片已保存到沙盒')
             if os.path.exists(local_path):
                 file_size = os.path.getsize(local_path)
                 print(f"[fig_inter] 图片保存成功: {local_path}, 大小: {file_size} 字节")
-                # 返回 Markdown 格式的图片，方便前端直接显示
-                return f"✅ 图片已生成并保存！\n\n![{fname}](/images/{image_filename})\n\n图片路径: /images/{image_filename}\n文件大小: {file_size} 字节"
+                # 返回格式：明确告诉 Agent 图片路径，让它传递给用户
+                image_url = f"/images/{image_filename}"
+                return f"""✅ 图片已成功生成！
+
+**重要：请在回复中包含以下图片链接，让用户可以看到图表：**
+
+![{fname}]({image_url})
+
+图片访问路径: {image_url}
+文件大小: {file_size} 字节
+
+请务必在你的回复中包含上面的 Markdown 图片语法，这样用户才能看到图表。"""
             else:
                 return f"❌ 图片保存失败：文件未创建，目标路径: {local_path}"
             
@@ -596,6 +606,7 @@ prompt = """
    - 当用户需要进行可视化展示时，请调用`fig_inter`工具。
    - 必须创建 fig 对象（如 `fig = plt.figure()`）。
    - 不要调用 `plt.show()`，否则图像将无法保存。
+   - **重要**：工具返回的图片 Markdown 链接（如 `![图表](/images/xxx.png)`）必须原样包含在你的回复中，不要省略或改写。
 
 5. **网络搜索：**
    - 当用户提出与数据分析无关的问题（如最新新闻、实时信息），请调用`search_tool`工具。
@@ -608,8 +619,8 @@ prompt = """
 - 所有回答均使用**简体中文**，清晰、礼貌、简洁。
 - 如果调用工具返回结构化 JSON 数据，你应提取关键信息简要说明。
 - 若需要用户提供更多信息，请主动提出明确的问题。
-- 如果有生成的图片文件，请使用 Markdown 格式插入图片：
-  `![图表描述](images/fig.png)`
+- **如果 fig_inter 工具返回了图片 Markdown 链接（如 `![图表](/images/xxx.png)`），你必须原样复制到回复中，不要改写或省略。**
+- 图片链接格式示例：`![图表描述](/images/fig_1234567890.png)`
 
 **风格：**
 - 专业、简洁、以数据驱动。
