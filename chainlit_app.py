@@ -104,80 +104,65 @@ async def on_message(message: cl.Message):
 
 async def stream_agent_response(input_data: dict, config: dict):
     """
-    流式获取 Agent 响应
+    真正的 Token 级别流式输出（打字机效果）
     
-    LangGraph Agent 的 stream() 返回的是每个节点的输出，
-    我们需要提取最终的 AI 消息内容。
-    
-    注意：agent.stream() 是同步的，需要在线程池中运行以避免阻塞事件循环
+    使用 astream_events API 获取 LLM 生成过程中的每个 token，
+    实现类似 ChatGPT 的打字机效果。
     """
-    import asyncio
+    print("[DEBUG] stream_agent_response 开始（Token 级别流式）")
     
-    print("[DEBUG] stream_agent_response 开始")
-    
-    def sync_stream():
-        """同步生成器，在线程池中运行"""
-        print("[DEBUG] sync_stream 开始执行")
-        results = []
-        try:
-            for chunk in agent.stream(input_data, config=config):
-                print(f"[DEBUG] agent.stream 返回 chunk: {list(chunk.keys())}")
+    try:
+        # 使用 astream_events 获取 token 级别的流
+        async for event in agent.astream_events(input_data, config=config, version="v2"):
+            event_type = event.get("event")
+            
+            # 调试：打印事件类型（可以注释掉减少日志）
+            # print(f"[DEBUG] 事件类型: {event_type}")
+            
+            # 1. LLM 流式输出 - 打字机效果的核心
+            if event_type == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk:
+                    # 获取 token 内容
+                    content = None
+                    if hasattr(chunk, "content"):
+                        content = chunk.content
+                    elif isinstance(chunk, dict):
+                        content = chunk.get("content")
+                    
+                    if content:
+                        # 逐 token 输出，实现打字机效果
+                        yield content
+            
+            # 2. 工具开始执行 - 显示正在执行的工具
+            elif event_type == "on_tool_start":
+                tool_name = event.get("name", "unknown")
+                print(f"[DEBUG] 工具开始执行: {tool_name}")
+                yield f"\n\n🔧 *正在执行工具: {tool_name}*\n"
+            
+            # 3. 工具执行完成 - 显示结果摘要
+            elif event_type == "on_tool_end":
+                tool_name = event.get("name", "unknown")
+                output = event.get("data", {}).get("output", "")
+                print(f"[DEBUG] 工具执行完成: {tool_name}, 输出长度: {len(str(output))}")
                 
-                # 处理不同的 chunk 结构
-                # LangGraph 可能返回 'agent', 'tools', 'model' 等不同的 key
-                for key in chunk:
-                    node_output = chunk[key]
-                    print(f"[DEBUG] 处理 key={key}, type={type(node_output)}")
-                    
-                    # 尝试从 messages 中提取内容
-                    messages = None
-                    if isinstance(node_output, dict):
-                        messages = node_output.get("messages", [])
-                    elif hasattr(node_output, "messages"):
-                        messages = node_output.messages
-                    
-                    if messages:
-                        for msg in messages:
-                            content = None
-                            if hasattr(msg, "content"):
-                                content = msg.content
-                            elif isinstance(msg, dict):
-                                content = msg.get("content")
-                            
-                            if content:
-                                print(f"[DEBUG] 提取到内容: {content[:100]}...")
-                                # 工具消息特殊处理
-                                if key == "tools":
-                                    if len(content) > 500:
-                                        content = content[:500] + "..."
-                                    results.append(f"\n\n🔧 *工具执行结果*:\n```\n{content}\n```\n\n")
-                                else:
-                                    results.append(content)
-                    else:
-                        # 如果没有 messages，尝试直接获取内容
-                        if isinstance(node_output, str):
-                            print(f"[DEBUG] 直接字符串: {node_output[:100]}...")
-                            results.append(node_output)
-                        elif hasattr(node_output, "content") and node_output.content:
-                            print(f"[DEBUG] 直接 content: {node_output.content[:100]}...")
-                            results.append(node_output.content)
-                            
-            print(f"[DEBUG] sync_stream 完成，共 {len(results)} 个结果")
-        except Exception as e:
-            import traceback
-            print(f"[ERROR] sync_stream 错误:\n{traceback.format_exc()}")
-            results.append(f"\n\n❌ Agent 执行错误: {str(e)}")
-        return results
+                # 格式化工具输出
+                output_str = str(output)
+                if len(output_str) > 500:
+                    output_str = output_str[:500] + "...(已截断)"
+                
+                yield f"\n```\n{output_str}\n```\n\n"
+            
+            # 4. 链/Agent 结束 - 可选的结束标记
+            # elif event_type == "on_chain_end":
+            #     print("[DEBUG] Agent 执行完成")
+                
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] stream_agent_response 错误:\n{traceback.format_exc()}")
+        yield f"\n\n❌ Agent 执行错误: {str(e)}"
     
-    # 在线程池中运行同步代码
-    loop = asyncio.get_event_loop()
-    print("[DEBUG] 准备在线程池中执行 sync_stream")
-    results = await loop.run_in_executor(None, sync_stream)
-    print(f"[DEBUG] 线程池执行完成，返回 {len(results)} 个结果")
-    
-    # 逐个 yield 结果
-    for result in results:
-        yield result
+    print("[DEBUG] stream_agent_response 结束")
 
 
 async def handle_images(response_text: str, msg: cl.Message):

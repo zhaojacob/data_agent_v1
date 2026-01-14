@@ -48,6 +48,7 @@ load_dotenv(override=True)
 # ============================================================================
 # 功能：当用户询问与数据分析无关的问题（如新闻、实时信息）时，调用 Tavily 搜索引擎
 # 实现：使用 langchain_tavily 的 TavilySearch，需要在 .env 中配置 TAVILY_API_KEY
+# 注意：本地开发需要代理才能访问，Render 部署不需要
 # ============================================================================
 
 search_tool = TavilySearch(max_results=5, topic="general")
