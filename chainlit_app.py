@@ -44,18 +44,42 @@ async def on_chat_start():
     
     # 发送欢迎消息
     await cl.Message(
-        content="""👋 你好！我是 **Data Agent**，你的智能数据分析助手。
+        content="""🤖 **Data Agent** - 你的 AI 数据分析伙伴
 
-我可以帮你：
-- 🔍 **查询数据库** - 执行 SQL 查询，获取数据
-- 🐍 **执行 Python 代码** - 数据处理、统计分析
-- 📊 **生成图表** - matplotlib/seaborn 可视化
-- 🌐 **搜索网络** - 获取最新信息
+我能做什么？
 
-试试问我：
-- "查询 business_data.students_scores 表的所有数据"
-- "计算每门课程的平均分"
-- "绘制成绩分布柱状图"
+💾 **数据库查询** - 直连 PostgreSQL，秒级响应
+```sql
+SELECT * FROM business_data.news WHERE keyword='证监会' LIMIT 10
+```
+
+🐍 **Python 分析** - E2B 云沙盒，安全执行代码
+```python
+import pandas as pd
+df.groupby('keyword')['title'].count().sort_values(ascending=False)
+```
+
+📊 **数据可视化** - matplotlib/seaborn 专业图表
+```python
+plt.figure(figsize=(12,6))
+sns.barplot(data=df, x='keyword', y='count')
+```
+
+🌐 **实时搜索** - Tavily 引擎，获取最新资讯
+
+---
+
+**试试这些：**
+- "统计 business_data.news 表中各关键词的新闻数量"
+- "分析最近一周的新闻趋势"
+- "绘制新闻来源分布饼图"
+- "搜索今天的 AI 行业动态"
+
+**数据库表：**
+- `business_data.news` - 金融新闻数据（307条）
+- `business_data.students_scores` - 学生成绩示例
+
+开始探索吧！💡
 """
     ).send()
 
@@ -71,9 +95,12 @@ async def on_message(message: cl.Message):
     thread_id = cl.user_session.get("thread_id")
     print(f"[DEBUG] thread_id: {thread_id}")
     
-    # 构造输入
+    # 构造输入和配置（包含递归限制）
     input_data = {"messages": [("user", message.content)]}
-    config = {"configurable": {"thread_id": thread_id}} if thread_id else None
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": 50  # 增加递归限制
+    } if thread_id else {"recursion_limit": 50}
     
     # 创建一个消息用于流式更新
     msg = cl.Message(content="")

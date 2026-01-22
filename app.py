@@ -126,7 +126,10 @@ async def invoke_agent(request: InvokeRequest):
     """
     try:
         input_data = {"messages": [("user", request.message)]}
-        config = {"configurable": {"thread_id": request.thread_id}} if request.thread_id else None
+        config = {
+            "configurable": {"thread_id": request.thread_id},
+            "recursion_limit": 50  # 增加递归限制
+        } if request.thread_id else {"recursion_limit": 50}
         
         result = agent.invoke(input_data, config=config)
         
@@ -154,7 +157,10 @@ async def stream_agent(request: InvokeRequest):
     async def generate():
         try:
             input_data = {"messages": [("user", request.message)]}
-            config = {"configurable": {"thread_id": request.thread_id}} if request.thread_id else None
+            config = {
+                "configurable": {"thread_id": request.thread_id},
+                "recursion_limit": 50  # 增加递归限制
+            } if request.thread_id else {"recursion_limit": 50}
             
             for chunk in agent.stream(input_data, config=config):
                 yield f"data: {json.dumps(chunk, ensure_ascii=False, default=str)}\n\n"
@@ -180,7 +186,10 @@ async def trigger_report(request: TriggerReportRequest):
     try:
         message = f"请分析 {request.stock} 的最新数据，生成简要报告"
         input_data = {"messages": [("user", message)]}
-        config = {"configurable": {"thread_id": request.thread_id}} if request.thread_id else None
+        config = {
+            "configurable": {"thread_id": request.thread_id},
+            "recursion_limit": 50  # 增加递归限制
+        } if request.thread_id else {"recursion_limit": 50}
         
         result = agent.invoke(input_data, config=config)
         

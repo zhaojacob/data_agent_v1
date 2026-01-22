@@ -39,6 +39,14 @@ from langchain_tavily import TavilySearch
 from e2b_code_interpreter import Sandbox  # E2B 云端代码沙盒
 import sqlparse  # SQL 解析和验证
 
+# 浏览器自动化工具（browser-use 版本，AI 驱动）
+try:
+    from tools.browser_tool import browser_task
+    BROWSER_TOOLS_AVAILABLE = True
+except ImportError:
+    BROWSER_TOOLS_AVAILABLE = False
+    print("[警告] 浏览器工具未加载，请安装: pip install browser-use && playwright install chromium")
+
 # 加载环境变量（从 .env 文件读取配置）
 load_dotenv(override=True)
 
@@ -170,37 +178,13 @@ def sql_inter(sql_query: str) -> str:
     if not is_valid:
         return f"❌ 查询被拒绝：{message}"
     
-    # 加载环境变量
-    load_dotenv(override=True)
-    
-    # ----------------------------------------------------------------
-    # 数据库配置说明：
-    # os.getenv('变量名', '默认值') 的工作原理：
-    # - 优先从 .env 文件读取变量值
-    # - 如果 .env 中没有定义该变量，则使用第二个参数作为默认值
-    # 
-    # 示例：os.getenv('PG_USER', 'postgres')
-    #   → 如果 .env 中有 PG_USER=financial-news-brief，返回 'financial-news-brief'
-    #   → 如果 .env 中没有 PG_USER，返回默认值 'postgres'
-    # ----------------------------------------------------------------
-    host = os.getenv('PG_HOST', 'localhost')       # 数据库地址，默认本机
-    user = os.getenv('PG_USER', 'postgres')        # 用户名，默认 postgres
-    password = os.getenv('PG_PASSWORD')            # 密码（必须在 .env 中配置）
-    dbname = os.getenv('PG_DBNAME', 'postgres')    # 数据库名，默认 postgres
-    port = os.getenv('PG_PORT', '5432')            # 端口，默认 5432
-    
     # ============================================================
-    # 第二道防线：使用只读用户连接数据库
-    # 即使代码验证被绕过，数据库层面也会拒绝写操作
+    # 使用配置模块自动选择数据库
     # ============================================================
+    from config import get_db_connection_string
+    
     try:
-        connection = psycopg.connect(
-            host=host,
-            user=user,
-            password=password,
-            dbname=dbname,
-            port=int(port)
-        )
+        connection = psycopg.connect(get_db_connection_string())
     except Exception as e:
         return f"❌ 数据库连接失败：{e}"
     
@@ -256,24 +240,14 @@ def extract_data(sql_query: str, df_name: str) -> str:
     
     print("正在调用 extract_data 工具运行 SQL 查询...")
     
-    load_dotenv(override=True)
-    
-    # 从 .env 读取数据库配置（说明见 sql_inter 函数）
-    host = os.getenv('PG_HOST', 'localhost')
-    user = os.getenv('PG_USER', 'postgres')
-    password = os.getenv('PG_PASSWORD')
-    dbname = os.getenv('PG_DBNAME', 'postgres')
-    port = os.getenv('PG_PORT', '5432')
+    # ============================================================
+    # 使用配置模块自动选择数据库
+    # ============================================================
+    from config import get_db_connection_string
 
     try:
         # 创建 PostgreSQL 数据库连接 (psycopg v3)
-        connection = psycopg.connect(
-            host=host,
-            user=user,
-            password=password,
-            dbname=dbname,
-            port=int(port)
-        )
+        connection = psycopg.connect(get_db_connection_string())
     except Exception as e:
         return f"❌ 数据库连接失败：{e}"
 
@@ -541,6 +515,342 @@ print('图片已保存到沙盒')
         return f"❌ 沙盒执行失败：{type(e).__name__}: {e}"
 
 
+# ============================================================================
+# 第七部分：数据共享工具（SQL 查询 + 沙盒分析）
+# ============================================================================
+# 功能：解决主进程与 E2B 沙盒之间数据无法共享的问题
+# 原理：
+#   1. 在主进程中执行 SQL 查询
+#   2. 将结果序列化为 JSON
+#   3. 将 JSON 数据嵌入到 Python 代码中
+#   4. 在 E2B 沙盒中反序列化并执行分析
+# ============================================================================
+
+class AnalyzeDataInput(BaseModel):
+    sql_query: str = Field(
+        description="SQL 查询语句，用于从数据库提取数据。必须是 SELECT 语句。示例：SELECT * FROM business_data.news LIMIT 100"
+    )
+    analysis_code: str = Field(
+        description="Python 分析代码。数据已预加载到变量 `df`（pandas DataFrame），直接使用即可。示例：print(df.describe())"
+    )
+
+
+@tool(args_schema=AnalyzeDataInput)
+def analyze_data(sql_query: str, analysis_code: str) -> str:
+    """
+    从数据库查询数据并在 E2B 沙盒中进行 Python 分析
+    
+    工作流程：
+    1. 在主进程中执行 SQL 查询，获取数据
+    2. 将数据序列化为 JSON 并嵌入 Python 代码
+    3. 在 E2B 沙盒中执行分析代码
+    
+    :param sql_query: SQL 查询语句（仅支持 SELECT）
+    :param analysis_code: Python 分析代码，数据已在变量 `df` 中
+    :return: 分析结果
+    
+    使用示例：
+        sql_query: "SELECT * FROM business_data.news WHERE keyword='证监会'"
+        analysis_code: '''
+            print(f"数据量: {len(df)}")
+            print(df['source'].value_counts())
+            print(df.describe())
+        '''
+    """
+    # ============================================================
+    # 第一步：验证 SQL 安全性
+    # ============================================================
+    is_valid, message = validate_sql(sql_query)
+    if not is_valid:
+        return f"❌ SQL 查询被拒绝：{message}"
+    
+    # ============================================================
+    # 第二步：检查 E2B API Key
+    # ============================================================
+    e2b_api_key = os.getenv('E2B_API_KEY')
+    if not e2b_api_key:
+        return "❌ E2B 沙盒不可用：未配置 E2B_API_KEY 环境变量"
+    
+    # ============================================================
+    # 第三步：在主进程中查询数据库
+    # ============================================================
+    from config import get_db_connection_string
+    
+    try:
+        connection = psycopg.connect(get_db_connection_string())
+        df = pd.read_sql(sql_query, connection)
+        connection.close()
+        
+        row_count = len(df)
+        if row_count == 0:
+            return "⚠️ SQL 查询返回空结果，没有数据可供分析"
+        
+        # 限制数据量（避免 JSON 过大）
+        MAX_ROWS = 10000
+        if row_count > MAX_ROWS:
+            df = df.head(MAX_ROWS)
+            warning = f"⚠️ 数据量较大（{row_count} 行），已截取前 {MAX_ROWS} 行进行分析\n\n"
+        else:
+            warning = ""
+            
+        print(f"[analyze_data] 查询成功，共 {row_count} 行数据")
+        
+    except Exception as e:
+        return f"❌ 数据库查询失败：{e}"
+    
+    # ============================================================
+    # 第四步：序列化数据为 JSON
+    # ============================================================
+    try:
+        # 处理特殊类型（datetime 等）
+        data_json = df.to_json(orient='records', force_ascii=False, date_format='iso')
+    except Exception as e:
+        return f"❌ 数据序列化失败：{e}"
+    
+    # ============================================================
+    # 第五步：构建沙盒代码
+    # ============================================================
+    sandbox_code = f'''
+import pandas as pd
+import numpy as np
+import json
+from datetime import datetime
+
+# ========== 从 JSON 恢复 DataFrame ==========
+_data_json = """{data_json}"""
+df = pd.DataFrame(json.loads(_data_json))
+
+# 打印数据概览
+print(f"📊 数据已加载: {{len(df)}} 行 x {{len(df.columns)}} 列")
+print(f"📋 列名: {{list(df.columns)}}")
+print("-" * 50)
+
+# ========== 用户分析代码 ==========
+{analysis_code}
+'''
+    
+    # ============================================================
+    # 第六步：在 E2B 沙盒中执行
+    # ============================================================
+    try:
+        sbx = Sandbox.create()
+        execution = sbx.run_code(sandbox_code)
+        
+        result_parts = []
+        
+        # 收集输出
+        if execution.logs.stdout:
+            if isinstance(execution.logs.stdout, list):
+                result_parts.extend(execution.logs.stdout)
+            else:
+                result_parts.append(str(execution.logs.stdout))
+        
+        if execution.logs.stderr:
+            if isinstance(execution.logs.stderr, list):
+                for err in execution.logs.stderr:
+                    result_parts.append(f"[stderr] {err}")
+            else:
+                result_parts.append(f"[stderr] {execution.logs.stderr}")
+        
+        if execution.results:
+            for r in execution.results:
+                if hasattr(r, 'text') and r.text:
+                    result_parts.append(r.text)
+        
+        if execution.error:
+            sbx.kill()
+            return f"❌ 分析代码执行失败：{execution.error.name}: {execution.error.value}"
+        
+        sbx.kill()
+        
+        if result_parts:
+            return warning + "\n".join(result_parts)
+        else:
+            return warning + "✅ 分析代码执行成功（无输出）"
+            
+    except Exception as e:
+        return f"❌ 沙盒执行失败：{type(e).__name__}: {e}"
+
+
+class PlotDataInput(BaseModel):
+    sql_query: str = Field(
+        description="SQL 查询语句，用于从数据库提取绘图数据。必须是 SELECT 语句。"
+    )
+    plot_code: str = Field(
+        description="Python 绘图代码。数据已预加载到变量 `df`，必须创建 `fig` 对象。不要调用 plt.show()。"
+    )
+    fname: str = Field(
+        default="fig",
+        description="图像对象的变量名，默认为 'fig'"
+    )
+
+
+@tool(args_schema=PlotDataInput)
+def plot_data(sql_query: str, plot_code: str, fname: str = "fig") -> str:
+    """
+    从数据库查询数据并在 E2B 沙盒中绑图
+    
+    工作流程：
+    1. 在主进程中执行 SQL 查询，获取数据
+    2. 将数据序列化为 JSON 并嵌入 Python 代码
+    3. 在 E2B 沙盒中执行绘图代码
+    4. 下载图片到本地
+    
+    :param sql_query: SQL 查询语句（仅支持 SELECT）
+    :param plot_code: Python 绘图代码，数据已在变量 `df` 中，必须创建 `fig` 对象
+    :param fname: 图像变量名，默认 'fig'
+    :return: 图片路径或错误信息
+    
+    使用示例：
+        sql_query: "SELECT keyword, COUNT(*) as cnt FROM business_data.news GROUP BY keyword"
+        plot_code: '''
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.bar(df['keyword'], df['cnt'], color='steelblue')
+            ax.set_xlabel('Keyword')
+            ax.set_ylabel('Count')
+            ax.set_title('News Distribution by Keyword')
+            ax.tick_params(axis='x', rotation=45)
+            fig.tight_layout()
+        '''
+    """
+    import time
+    
+    # ============================================================
+    # 第一步：验证 SQL 安全性
+    # ============================================================
+    is_valid, message = validate_sql(sql_query)
+    if not is_valid:
+        return f"❌ SQL 查询被拒绝：{message}"
+    
+    # ============================================================
+    # 第二步：检查 E2B API Key
+    # ============================================================
+    e2b_api_key = os.getenv('E2B_API_KEY')
+    if not e2b_api_key:
+        return "❌ E2B 沙盒不可用：未配置 E2B_API_KEY 环境变量"
+    
+    # ============================================================
+    # 第三步：在主进程中查询数据库
+    # ============================================================
+    from config import get_db_connection_string
+    
+    try:
+        connection = psycopg.connect(get_db_connection_string())
+        df = pd.read_sql(sql_query, connection)
+        connection.close()
+        
+        row_count = len(df)
+        if row_count == 0:
+            return "⚠️ SQL 查询返回空结果，没有数据可供绑图"
+        
+        # 限制数据量
+        MAX_ROWS = 10000
+        if row_count > MAX_ROWS:
+            df = df.head(MAX_ROWS)
+            print(f"[plot_data] 数据量较大，已截取前 {MAX_ROWS} 行")
+            
+        print(f"[plot_data] 查询成功，共 {row_count} 行数据")
+        
+    except Exception as e:
+        return f"❌ 数据库查询失败：{e}"
+    
+    # ============================================================
+    # 第四步：序列化数据为 JSON
+    # ============================================================
+    try:
+        data_json = df.to_json(orient='records', force_ascii=False, date_format='iso')
+    except Exception as e:
+        return f"❌ 数据序列化失败：{e}"
+    
+    # ============================================================
+    # 第五步：配置图片路径
+    # ============================================================
+    images_dir = os.getenv('IMAGES_DIR')
+    if not images_dir:
+        images_dir = os.path.join(os.path.dirname(__file__), 'images')
+    os.makedirs(images_dir, exist_ok=True)
+    
+    timestamp = int(time.time())
+    image_filename = f"{fname}_{timestamp}.png"
+    sandbox_path = f"/tmp/{image_filename}"
+    local_path = os.path.join(images_dir, image_filename)
+    
+    # ============================================================
+    # 第六步：构建沙盒绑图代码
+    # ============================================================
+    sandbox_code = f'''
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import numpy as np
+import json
+from datetime import datetime
+
+# ========== 从 JSON 恢复 DataFrame ==========
+_data_json = """{data_json}"""
+df = pd.DataFrame(json.loads(_data_json))
+
+print(f"📊 数据已加载: {{len(df)}} 行 x {{len(df.columns)}} 列")
+
+# ========== 用户绑图代码 ==========
+{plot_code}
+
+# ========== 保存图片 ==========
+{fname}.savefig('{sandbox_path}', bbox_inches='tight', dpi=150)
+plt.close('all')
+print('✅ 图片已生成')
+'''
+    
+    # ============================================================
+    # 第七步：在 E2B 沙盒中执行
+    # ============================================================
+    try:
+        sbx = Sandbox.create()
+        execution = sbx.run_code(sandbox_code)
+        
+        if execution.error:
+            sbx.kill()
+            return f"❌ 绑图失败：{execution.error.name}: {execution.error.value}"
+        
+        # 下载图片
+        try:
+            file_content = sbx.files.read(sandbox_path, format='bytes')
+            
+            if not file_content:
+                sbx.kill()
+                return f"❌ 图片下载失败：沙盒返回空内容"
+            
+            with open(local_path, 'wb') as f:
+                f.write(file_content)
+            
+            sbx.kill()
+            
+            if os.path.exists(local_path):
+                file_size = os.path.getsize(local_path)
+                image_url = f"/images/{image_filename}"
+                return f"""✅ 图片已成功生成！
+
+**重要：请在回复中包含以下图片链接，让用户可以看到图表：**
+
+![{fname}]({image_url})
+
+图片访问路径: {image_url}
+文件大小: {file_size} 字节
+
+请务必在你的回复中包含上面的 Markdown 图片语法，这样用户才能看到图表。"""
+            else:
+                return f"❌ 图片保存失败"
+                
+        except Exception as e:
+            sbx.kill()
+            return f"❌ 图片下载失败：{type(e).__name__}: {e}"
+            
+    except Exception as e:
+        return f"❌ 沙盒执行失败：{type(e).__name__}: {e}"
+
+
 # === 原本地执行代码（已弃用，存在安全风险）===
 # @tool(args_schema=FigCodeInput)
 # def fig_inter_unsafe(py_code: str, fname: str) -> str:
@@ -588,40 +898,65 @@ print('图片已保存到沙盒')
 prompt = """
 你是一名经验丰富的智能数据分析助手，擅长帮助用户高效完成以下任务：
 
-1. **数据库查询：**
-   - 当用户需要获取数据库中某些数据或进行SQL查询时，请调用`sql_inter`工具。
-   - 该工具已内置 PostgreSQL 连接参数，你只需生成 SQL 语句即可。
+1. **数据库查询（仅查看数据）：**
+   - 当用户只需要查看数据库中的数据时，使用 `sql_inter` 工具。
    - **重要**：所有业务数据表都在 `business_data` schema 中，查询时必须使用完整表名。
-   - 示例：`SELECT * FROM business_data.students_scores` 或 `SELECT * FROM business_data.表名 WHERE 条件`。
+   - 示例：`SELECT * FROM business_data.news LIMIT 10`
 
-2. **数据表提取：**
-   - 当用户希望将数据库中的表格导入 Python 环境进行后续分析时，请调用`extract_data`工具。
-   - 需要提供 SQL 查询语句和 DataFrame 变量名。
-   - **重要**：表名必须带 schema 前缀，如 `SELECT * FROM business_data.students_scores`。
+2. **数据分析（查询 + 统计）：** ⭐ 推荐
+   - 当用户需要对数据库数据进行 Python 分析时，使用 `analyze_data` 工具。
+   - 该工具会先执行 SQL 查询，然后将数据传递到 E2B 沙盒中进行分析。
+   - **数据已预加载到变量 `df`（pandas DataFrame）**，直接在 analysis_code 中使用。
+   - 示例：
+     ```
+     sql_query: "SELECT * FROM business_data.news WHERE keyword='证监会'"
+     analysis_code: '''
+         print(f"数据量: {len(df)}")
+         print(df['source'].value_counts())
+         print(df.describe())
+     '''
+     ```
 
-3. **非绘图类 Python 代码执行：**
-   - 当用户需要执行 Python 脚本或进行数据处理、统计计算时，请调用`python_inter`工具。
-   - 仅限执行非绘图类代码，例如变量定义、数据分析等。
+3. **数据可视化（查询 + 绑图）：** ⭐ 推荐
+   - 当用户需要根据数据库数据生成图表时，使用 `plot_data` 工具。
+   - 该工具会先执行 SQL 查询，然后将数据传递到 E2B 沙盒中绑图。
+   - **数据已预加载到变量 `df`**，必须创建 `fig` 对象，不要调用 `plt.show()`。
+   - 示例：
+     ```
+     sql_query: "SELECT keyword, COUNT(*) as cnt FROM business_data.news GROUP BY keyword"
+     plot_code: '''
+         fig, ax = plt.subplots(figsize=(12, 6))
+         ax.bar(df['keyword'], df['cnt'], color='steelblue')
+         ax.set_title('News by Keyword')
+         fig.tight_layout()
+     '''
+     ```
+   - **重要**：工具返回的图片 Markdown 链接必须原样包含在你的回复中。
 
-4. **绘图类 Python 代码执行：**
-   - 当用户需要进行可视化展示时，请调用`fig_inter`工具。
-   - 必须创建 fig 对象（如 `fig = plt.figure()`）。
-   - 不要调用 `plt.show()`，否则图像将无法保存。
-   - **重要**：工具返回的图片 Markdown 链接（如 `![图表](/images/xxx.png)`）必须原样包含在你的回复中，不要省略或改写。
+4. **纯 Python 执行（无数据库）：**
+   - 当用户需要执行与数据库无关的 Python 代码时，使用 `python_inter` 工具。
+   - 此工具在隔离沙盒中运行，无法访问数据库。
 
-5. **网络搜索：**
-   - 当用户提出与数据分析无关的问题（如最新新闻、实时信息），请调用`search_tool`工具。
+5. **纯绑图（无数据库）：**
+   - 当用户提供了数据（非数据库数据）需要绑图时，使用 `fig_inter` 工具。
 
-**工具使用优先级：**
-- 如需数据库数据，请先使用`sql_inter`或`extract_data`获取，再执行 Python 分析或绘图。
-- 如需绘图，请先确保数据已加载为 pandas 对象。
+6. **网络搜索：**
+   - 当用户提出与数据分析无关的问题，使用 `search_tool` 工具。
+
+**⭐ 工具选择指南：**
+| 场景 | 推荐工具 |
+|------|---------|
+| 查看数据库表内容 | `sql_inter` |
+| 数据库数据 + 统计分析 | `analyze_data` ⭐ |
+| 数据库数据 + 图表可视化 | `plot_data` ⭐ |
+| 无数据库的 Python 计算 | `python_inter` |
+| 无数据库的绑图 | `fig_inter` |
+| 搜索网络信息 | `search_tool` |
 
 **回答要求：**
 - 所有回答均使用**简体中文**，清晰、礼貌、简洁。
 - 如果调用工具返回结构化 JSON 数据，你应提取关键信息简要说明。
-- 若需要用户提供更多信息，请主动提出明确的问题。
-- **如果 fig_inter 工具返回了图片 Markdown 链接（如 `![图表](/images/xxx.png)`），你必须原样复制到回复中，不要改写或省略。**
-- 图片链接格式示例：`![图表描述](/images/fig_1234567890.png)`
+- **如果工具返回了图片 Markdown 链接，你必须原样复制到回复中。**
 
 **风格：**
 - 专业、简洁、以数据驱动。
@@ -636,7 +971,7 @@ prompt = """
    - 禁止访问 `.env`、密码、密钥等敏感文件
 
 2. **禁止网络操作：**
-   - 禁止使用 `requests`、`urllib`、`socket` 等进行网络请求
+   - 禁止使用 `requests`、`urllib`、`socket` 等进行网络请求（数据库连接除外）
    - 禁止数据外传或连接外部服务器
 
 3. **禁止危险代码：**
@@ -648,31 +983,52 @@ prompt = """
    - 禁止执行超过 60 秒的长时间计算
    - 禁止使用 `GridSearchCV`、`RandomizedSearchCV` 等大规模超参数搜索
    - 禁止创建超大数组或无限循环
-   - 如需复杂模型训练，请使用简单参数，避免资源耗尽
 
 5. **SQL 限制：**
    - 仅允许 SELECT 查询
    - 禁止 DROP、DELETE、TRUNCATE、ALTER、INSERT、UPDATE 等修改操作
    - 禁止查询系统表（如 pg_shadow、pg_roles）
 
-6. **缺少库的处理：**
-   - 如果代码需要未安装的库，请告知用户手动安装，不要尝试自动安装
-   - 示例回复："此分析需要 xgboost 库，请运行 `pip install xgboost` 后重试"
-
 请根据以上原则为用户提供精准、高效的协助。
 """
 
 # 注册所有工具
 tools = [
-    search_tool,    # 网络搜索
-    sql_inter,      # SQL 查询
-    extract_data,   # 数据提取
-    python_inter,   # Python 执行
-    fig_inter,      # 绘图
+    search_tool,    # 网络搜索（Tavily）
+    sql_inter,      # SQL 查询（仅查看数据）
+    analyze_data,   # SQL + Python 分析（推荐）⭐
+    plot_data,      # SQL + 绘图（推荐）⭐
+    python_inter,   # Python 执行（无数据库访问）
+    fig_inter,      # 绑图（无数据库访问）
+    # extract_data, # 已废弃：沙盒间变量无法共享
 ]
+
+# 添加浏览器工具（browser-use AI 驱动，通用）
+if BROWSER_TOOLS_AVAILABLE:
+    tools.append(browser_task)  # 唯一的浏览器工具，用自然语言描述任务
+    print("[信息] browser-use 浏览器工具已加载")
 
 # 创建 LLM 模型（使用 DeepSeek）
 model = ChatDeepSeek(model="deepseek-chat")
 
-# 创建 Agent
-agent = create_agent(model=model, tools=tools, system_prompt=prompt)
+# 创建记忆存储（会话内记忆）
+# MemorySaver 是内存存储，重启服务后记忆丢失
+# 后续可升级为 PostgresSaver 实现持久化
+from langgraph.checkpoint.memory import MemorySaver
+memory = MemorySaver()
+
+# 创建 Agent（带记忆和递归限制）
+agent = create_agent(
+    model=model, 
+    tools=tools, 
+    system_prompt=prompt, 
+    checkpointer=memory
+)
+
+# 设置默认配置（包括递归限制）
+DEFAULT_CONFIG = {
+    "recursion_limit": 50,  # 增加递归限制到 50（默认 25）
+    "configurable": {
+        "thread_id": "default"
+    }
+}
