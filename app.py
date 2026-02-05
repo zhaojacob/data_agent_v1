@@ -153,22 +153,119 @@ async def stream_agent(request: InvokeRequest):
     流式调用 Agent (SSE)
     
     适用场景：长任务、需要实时反馈
+    
+    返回格式（每行）：
+        data: {"node": "model", "content": "AI 回复内容"}\n\n
+        data: {"node": "tools", "content": "工具执行结果"}\n\n
+        data: {"type": "ping"}\n\n  (keep-alive 心跳)
+        data: [DONE]\n\n
+    
+    注意：此函数将 LangGraph stream_mode="updates" 的输出转换为简化的 SSE 格式，
+    供前端 Vercel AI SDK useChat hook 消费。
+    
+    [重要] 使用异步 astream() 并添加 keep-alive 心跳，防止前端超时。
+    心跳每 15 秒发送一次，确保连接不会因为工具执行时间过长而断开。
     """
+    import asyncio
+    
     async def generate():
+        # 创建一个队列来存储 SSE 数据
+        queue = asyncio.Queue()
+        done = asyncio.Event()
+        agent_task = None
+        keepalive_task = None
+        
+        async def stream_agent_data():
+            """异步流式获取 Agent 数据"""
+            try:
+                input_data = {"messages": [("user", request.message)]}
+                config = {
+                    "configurable": {"thread_id": request.thread_id},
+                    "recursion_limit": 50
+                } if request.thread_id else {"recursion_limit": 50}
+                
+                async for chunk in agent.astream(input_data, config=config):
+                    if done.is_set():  # 检查是否已取消
+                        break
+                        
+                    print(f"[DEBUG] chunk type: {type(chunk)}, keys: {chunk.keys() if isinstance(chunk, dict) else 'N/A'}")
+                    
+                    for node_name, node_output in chunk.items():
+                        print(f"[DEBUG] node_name: {node_name}, node_output type: {type(node_output)}")
+                        
+                        if "messages" in node_output:
+                            messages = node_output["messages"]
+                            print(f"[DEBUG] messages type: {type(messages)}, len: {len(messages) if hasattr(messages, '__len__') else 'N/A'}")
+                            
+                            for msg in messages:
+                                print(f"[DEBUG] msg type: {type(msg)}, has content: {hasattr(msg, 'content')}")
+                                
+                                if hasattr(msg, "content"):
+                                    content = msg.content
+                                    print(f"[DEBUG] content type: {type(content)}, value: {str(content)[:100]}")
+                                    
+                                    if isinstance(content, str) and content.strip():
+                                        sse_data = json.dumps({'node': node_name, 'content': content}, ensure_ascii=False)
+                                        print(f"[DEBUG] Sending SSE: {sse_data[:200]}")
+                                        await queue.put(f"data: {sse_data}\n\n")
+                
+                await queue.put("data: [DONE]\n\n")
+            except asyncio.CancelledError:
+                print("[DEBUG] Agent task cancelled")
+                raise
+            except Exception as e:
+                print(f"[DEBUG] Agent error: {e}")
+                await queue.put(f"data: {json.dumps({'error': str(e)})}\n\n")
+            finally:
+                done.set()
+        
+        async def send_keepalive():
+            """每 15 秒发送一次心跳"""
+            try:
+                while not done.is_set():
+                    await asyncio.sleep(15)
+                    if not done.is_set():
+                        print("[DEBUG] Sending keep-alive ping")
+                        await queue.put(f"data: {json.dumps({'type': 'ping'})}\n\n")
+            except asyncio.CancelledError:
+                print("[DEBUG] Keepalive task cancelled")
+                raise
+        
         try:
-            input_data = {"messages": [("user", request.message)]}
-            config = {
-                "configurable": {"thread_id": request.thread_id},
-                "recursion_limit": 50  # 增加递归限制
-            } if request.thread_id else {"recursion_limit": 50}
+            # 启动 Agent 流和心跳任务
+            agent_task = asyncio.create_task(stream_agent_data())
+            keepalive_task = asyncio.create_task(send_keepalive())
             
-            for chunk in agent.stream(input_data, config=config):
-                yield f"data: {json.dumps(chunk, ensure_ascii=False, default=str)}\n\n"
-            
-            yield "data: [DONE]\n\n"
-            
+            # 从队列中读取数据并 yield
+            while not done.is_set() or not queue.empty():
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    yield data
+                except asyncio.TimeoutError:
+                    continue
+                    
+        except GeneratorExit:
+            # 客户端断开连接
+            print("[DEBUG] Client disconnected")
+            done.set()
         except Exception as e:
+            print(f"[DEBUG] Stream error: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            # 确保清理所有任务
+            done.set()
+            if keepalive_task and not keepalive_task.done():
+                keepalive_task.cancel()
+                try:
+                    await keepalive_task
+                except asyncio.CancelledError:
+                    pass
+            if agent_task and not agent_task.done():
+                agent_task.cancel()
+                try:
+                    await agent_task
+                except asyncio.CancelledError:
+                    pass
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 

@@ -94,28 +94,41 @@ def extract_batch_id(file_path: str) -> str:
     return None
 
 
+def truncate_field(value: str, max_length: int) -> str:
+    """截断字段到指定长度"""
+    if value and len(value) > max_length:
+        return value[:max_length-3] + '...'
+    return value or ''
+
+
 def prepare_article_data(article: Dict, keyword: str, batch_id: str) -> tuple:
     """准备单条新闻数据"""
     # 时间处理：优先使用 datetime，其次 search_pub_time
     publish_time = parse_datetime(article.get('datetime') or article.get('search_pub_time'))
     
+    # 截断可能超长的字段（与数据库 VARCHAR 限制匹配）
+    author = truncate_field(article.get('author', ''), 100)
+    source = truncate_field(article.get('source', ''), 100)
+    source_chinese = truncate_field(article.get('source_chinese', ''), 100)
+    keyword_truncated = truncate_field(keyword, 100)
+    
     return (
         article.get('title', ''),
         article.get('url', ''),
-        article.get('source', ''),
-        article.get('source_chinese', ''),
+        source,
+        source_chinese,
         article.get('search_title', ''),
         article.get('search_summary', ''),
         article.get('search_pub_time', ''),
         article.get('content', ''),
         article.get('content_length', 0),
-        article.get('author', ''),
+        author,
         publish_time,                                    # publish_time (TIMESTAMPTZ)
         parse_date_only(article.get('date')),          # date_only (DATE)
         article.get('datetime', ''),                    # datetime_str (VARCHAR)
         article.get('timestamp'),                       # timestamp_unix (BIGINT)
         parse_datetime(article.get('fetch_time')),     # fetch_time (TIMESTAMPTZ)
-        keyword,
+        keyword_truncated,
         batch_id
     )
 
